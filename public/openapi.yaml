@@ -1,0 +1,337 @@
+openapi: 3.0.3
+info:
+  title: Product Admin API
+  version: "1.0.0"
+  description: |
+    RESTful product endpoints for authenticated administrators.
+
+    Authenticate by posting credentials to `/api/v1/tokens`, then send the
+    returned token as `Authorization: Bearer <token>` on every other request.
+
+servers:
+  - url: /api/v1
+    description: Current host
+
+tags:
+  - name: Authentication
+  - name: Products
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Sanctum personal access token.
+
+  schemas:
+    Category:
+      type: object
+      properties:
+        id: { type: integer, example: 3 }
+        name: { type: string, example: Electronics }
+
+    Product:
+      type: object
+      properties:
+        id: { type: integer, example: 42 }
+        name: { type: string, example: Mechanical Keyboard }
+        description:
+          type: string
+          nullable: true
+          example: Hot-swappable switches with an aluminium case.
+        price:
+          type: string
+          description: >-
+            Price in Malaysian ringgit (MYR). A decimal string with two places,
+            preserving the scale stored in the database rather than a lossy float.
+          example: "449.00"
+        stock: { type: integer, example: 24 }
+        enabled: { type: boolean, example: true }
+        category:
+          $ref: '#/components/schemas/Category'
+        created_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time, nullable: true }
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set when the product has been soft deleted.
+
+    ProductRequest:
+      type: object
+      required: [name, category_id, price, stock, enabled]
+      properties:
+        name: { type: string, maxLength: 255, example: Mechanical Keyboard }
+        category_id: { type: integer, example: 3 }
+        description: { type: string, nullable: true, maxLength: 5000 }
+        price:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 99999999.99
+          description: Price in Malaysian ringgit (MYR), at most two decimal places.
+          example: 449.00
+        stock: { type: integer, minimum: 0, example: 24 }
+        enabled: { type: boolean, example: true }
+
+    PaginationMeta:
+      type: object
+      properties:
+        current_page: { type: integer, example: 1 }
+        from: { type: integer, nullable: true, example: 1 }
+        last_page: { type: integer, example: 4 }
+        per_page: { type: integer, example: 15 }
+        to: { type: integer, nullable: true, example: 15 }
+        total: { type: integer, example: 52 }
+        path: { type: string }
+
+    PaginatedProducts:
+      type: object
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Product' }
+        links:
+          type: object
+          properties:
+            first: { type: string, nullable: true }
+            last: { type: string, nullable: true }
+            prev: { type: string, nullable: true }
+            next: { type: string, nullable: true }
+        meta: { $ref: '#/components/schemas/PaginationMeta' }
+
+    ValidationError:
+      type: object
+      properties:
+        message: { type: string, example: The given data was invalid. }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          example:
+            name: ["The name field is required."]
+
+    Error:
+      type: object
+      properties:
+        message: { type: string }
+
+  responses:
+    Unauthenticated:
+      description: No token was supplied, or the token is invalid.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: Unauthenticated. }
+    Forbidden:
+      description: The authenticated user is not an administrator.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: This area is restricted to administrators. }
+    NotFound:
+      description: No product matches the given id.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unprocessable:
+      description: Validation failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationError' }
+
+paths:
+  /tokens:
+    post:
+      tags: [Authentication]
+      summary: Issue a personal access token
+      description: |
+        Exchanges credentials for a bearer token. Rate limited to five failed
+        attempts per minute for a given email and IP address pair.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, device_name]
+              properties:
+                email: { type: string, format: email, example: admin@example.com }
+                password: { type: string, format: password, example: password }
+                device_name: { type: string, example: postman }
+      responses:
+        '201':
+          description: Token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      token: { type: string, example: 3|hJq8mT... }
+                      user:
+                        type: object
+                        properties:
+                          id: { type: integer }
+                          name: { type: string }
+                          email: { type: string }
+                          role: { type: string, example: admin }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /tokens/current:
+    delete:
+      tags: [Authentication]
+      summary: Revoke the token used for this request
+      responses:
+        '200':
+          description: Token revoked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { message: Token revoked. }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /products:
+    get:
+      tags: [Products]
+      summary: List products
+      description: Returns a paginated product list. Soft-deleted products are excluded.
+      parameters:
+        - name: category_id
+          in: query
+          description: Restrict the list to one category.
+          schema: { type: integer }
+        - name: status
+          in: query
+          description: Restrict the list by publication status.
+          schema: { type: string, enum: [enabled, disabled] }
+        - name: search
+          in: query
+          description: Match against the product name and description.
+          schema: { type: string, maxLength: 255 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 15 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+      responses:
+        '200':
+          description: A page of products.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedProducts' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+    post:
+      tags: [Products]
+      summary: Create a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductRequest' }
+      responses:
+        '201':
+          description: Product created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /products/bulk:
+    delete:
+      tags: [Products]
+      summary: Soft delete several products
+      description: |
+        Declared before `/products/{product}` in the route file so this static
+        path is not matched as a product id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: { type: integer }
+                  example: [12, 13, 14]
+      responses:
+        '200':
+          description: Products deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Products deleted. }
+                  data:
+                    type: object
+                    properties:
+                      deleted_count: { type: integer, example: 3 }
+                      ids:
+                        type: array
+                        items: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /products/{product}:
+    parameters:
+      - name: product
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      tags: [Products]
+      summary: Show one product
+      responses:
+        '200':
+          description: The product.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Products]
+      summary: Soft delete a product
+      responses:
+        '200':
+          description: Product deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Product deleted. }
+                  data:
+                    type: object
+                    properties:
+                      id: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+security:
+  - bearerAuth: []

@@ -1,0 +1,46 @@
+@import 'tailwindcss';
+
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../storage/framework/views/*.php';
+
+@theme {
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+        'Segoe UI Symbol', 'Noto Color Emoji';
+}
+
+/*
+ * Small set of component classes so the Blade templates can express intent
+ * ("form-control", "btn-primary") instead of repeating long utility strings
+ * at every input and button.
+ */
+@layer components {
+    .form-control {
+        @apply block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm;
+        @apply focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none;
+    }
+
+    /*
+     * Tailwind 4 resolves @apply against real utilities only, so a variant
+     * cannot @apply .btn. Templates compose them instead: class="btn btn-primary".
+     */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium;
+        @apply transition focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50;
+    }
+
+    .btn-primary {
+        @apply bg-indigo-600 text-white hover:bg-indigo-500 focus:ring-indigo-500;
+    }
+
+    .btn-secondary {
+        @apply border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 focus:ring-indigo-500;
+    }
+
+    .btn-danger {
+        @apply bg-red-600 text-white hover:bg-red-500 focus:ring-red-500;
+    }
+
+    .table-cell-base {
+        @apply px-4 py-3 text-sm whitespace-nowrap;
+    }
+}
